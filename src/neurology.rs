@@ -1,79 +1,82 @@
 use mccm::{MnistNetwork, MnistNeuron, MNIST_AREA, MNIST_SIDE};
-use std::cell::RefCell;
+use std::cell::Cell;
 use std::rc::Rc;
+use std::path::Path;
+use std::fs::File;
+use std::io::Write;
 
 pub struct NeuronicInput {
-    measure: RefCell<f32>,
-    total_weighted_prediction: RefCell<f32>,
+    measure: Cell<f32>,
+    total_weighted_prediction: Cell<f32>,
     weight_holder: Rc<WeightHolder>,
-    current_reconstruction_error: RefCell<f32>,
+    current_reconstruction_error: Cell<f32>,
 }
 
 impl NeuronicInput {
     pub fn new(weight_holder: Rc<WeightHolder>) -> NeuronicInput {
         NeuronicInput {
-            measure: RefCell::new(0.0),
-            total_weighted_prediction: RefCell::new(0.0),
+            measure: Cell::new(0.0),
+            total_weighted_prediction: Cell::new(0.0),
             weight_holder,
-            current_reconstruction_error: RefCell::new(0.0),
+            current_reconstruction_error: Cell::new(0.0),
         }
     }
 
     pub fn get_measure(&self) -> f32 {
-        *self.measure.borrow()
+        self.measure.get()
     }
 
     pub fn load_input_measure(&self, measure: f32) {
-        *self.measure.borrow_mut() = measure;
+        self.measure.replace(measure);
     }
 
     pub fn incr_total_weighted_prediction(&self, weighted_prediction: f32) {
-        *self.total_weighted_prediction.borrow_mut() += weighted_prediction;
+        self.total_weighted_prediction.replace(self.total_weighted_prediction.get() + weighted_prediction);
     }
 
     pub fn get_reconstruction(&self) -> f32 {
-        *self.total_weighted_prediction.borrow() / self.weight_holder.get_total_weight()
+        self.total_weighted_prediction.get() / self.weight_holder.get_total_weight()
     }
 
     /// Caches reconstruction error to speed up
     /// future error lookups
     pub fn cache_reconstruction_error(&self) {
         let reconstruction =
-            *self.total_weighted_prediction.borrow() / self.weight_holder.get_total_weight();
-        *self.current_reconstruction_error.borrow_mut() = reconstruction - *self.measure.borrow();
+            self.total_weighted_prediction.get() / self.weight_holder.get_total_weight();
+        self.current_reconstruction_error.replace(reconstruction - self.measure.get());
     }
 
     /// This is the signed error.  Only the magnitude is important
     /// for the size of the error, but the sign is necessary for
     /// learning weights
     pub fn get_reconstruction_error(&self) -> f32 {
-        *self.current_reconstruction_error.borrow()
+        self.current_reconstruction_error.get()
     }
 }
 
 /// If you distributed this network, then each input would hold
 /// the total input weights, but it's redundant in the present case
 pub struct WeightHolder {
-    total_weights: RefCell<f32>,
+    total_weights: Cell<f32>,
 }
 
 impl WeightHolder {
     pub fn new() -> WeightHolder {
         WeightHolder {
-            total_weights: RefCell::new(0.0),
+            total_weights: Cell::new(0.0),
         }
     }
 
     pub fn clear(&self) {
-        *self.total_weights.borrow_mut() = 0.0;
+        self.total_weights.replace(0.0);
     }
 
     pub fn incr_weight(&self, weight: f32) {
-        *self.total_weights.borrow_mut() += weight;
+        self.total_weights.replace(self.total_weights.get() + weight);
     }
 
     pub fn get_total_weight(&self) -> f32 {
-        *self.total_weights.borrow()
+        self.total_weights.get()
     }
 }
 
@@ -81,9 +84,9 @@ pub struct CompAENeuron {
     name: String,
     learning_constant: f32,
     inputs: Vec<Rc<NeuronicInput>>,
-    weights: Vec<RefCell<f32>>,
+    weights: Vec<Cell<f32>>,
     weight_holder: Rc<WeightHolder>,
-    current_em: RefCell<f32>,
+    current_em: Cell<f32>,
 }
 
 impl CompAENeuron {
@@ -94,8 +97,8 @@ impl CompAENeuron {
         weight_holder: Rc<WeightHolder>,
     ) -> CompAENeuron {
         let weights = (0..inputs.len())
-            .map(|_| RefCell::new(0.0))
-            .collect::<Vec<RefCell<f32>>>();
+            .map(|_| Cell::new(0.0))
+            .collect::<Vec<Cell<f32>>>();
 
         CompAENeuron {
             name,
@@ -103,28 +106,43 @@ impl CompAENeuron {
             inputs,
             weights,
             weight_holder,
-            current_em: RefCell::new(0.0),
+            current_em: Cell::new(0.0),
         }
     }
 
     pub fn run_prediction_phase(&self) {
-        let mut current_em = self.current_em.borrow_mut();
-
-        *current_em = self.compute_em();
-        self.weight_holder.incr_weight(*current_em);
+        let em = self.compute_em();
+        self.current_em.replace(em);
+        self.weight_holder.incr_weight(em);
 
         for (input, weight) in self.inputs.iter().zip(self.weights.iter()) {
-            input.incr_total_weighted_prediction(*current_em * *weight.borrow());
+            input.incr_total_weighted_prediction(em * weight.get());
         }
     }
 
     pub fn run_learning_phase(&self) {
-        let adjustment_size = (*self.current_em.borrow() / self.weight_holder.get_total_weight())
+        let adjustment_size = (self.current_em.get() / self.weight_holder.get_total_weight())
             * self.learning_constant;
 
         for (input, weight) in self.inputs.iter().zip(self.weights.iter()) {
-            *weight.borrow_mut() += -1.0 * input.get_reconstruction_error() * adjustment_size;
+            weight.replace(weight.get() + (-1.0 * input.get_reconstruction_error() * adjustment_size));
         }
+    }
+
+    pub fn to_serializable(&self) -> Vec<Vec<f32>> {
+        let mut val_matrix = Vec::new();
+
+        for j in 0..MNIST_SIDE {
+            let mut val_row = Vec::new();
+
+            for i in 0..MNIST_SIDE {
+                val_row.push(self.weights.get((j * MNIST_SIDE) + i).unwrap().get());
+            }
+
+            val_matrix.push(val_row);
+        }
+
+        val_matrix
     }
 }
 
@@ -138,7 +156,7 @@ impl MnistNeuron for CompAENeuron {
         let mut total_weighted_em = 0.0;
 
         for (input, weight_ref) in self.inputs.iter().zip(self.weights.iter()) {
-            let weight = *weight_ref.borrow_mut();
+            let weight = weight_ref.get();
 
             total_weight += weight;
             total_weighted_em += weight * input.get_measure();
@@ -179,6 +197,17 @@ impl CompAENetwork {
             inputs,
             weight_holder
         }
+    }
+
+    pub fn serialize(&self) {
+        let py_data: Vec<Vec<Vec<f32>>> = self.neurons.iter().map(|n| n.to_serializable()).collect();
+
+        let pickle = serde_pickle::to_vec(&py_data, true).unwrap();
+
+        let path = Path::new("./output_data/data.pickle");
+        let mut file = File::create(path).unwrap();
+
+        file.write_all(&pickle).unwrap();
     }
 }
 
