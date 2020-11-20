@@ -1,9 +1,16 @@
 [package]
 name = "competitive_ae"
 version = "0.1.0"
-authors = ["Danny Student <dannygeisz@berkeley.edu>"]
+authors = ["Danny Geisz <dannygeisz@berkeley.edu>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+mccm = { path = "../mccm" }
+codexc_log = { path = "../codexc_log" }
+rand = "0.7.3"
+mnist = "0.4.1"
+rulinalg = "0.4.2"
+serde = "1.0"
+serde-pickle = "0.6"
