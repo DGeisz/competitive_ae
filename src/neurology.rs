@@ -1,9 +1,10 @@
-use mccm::{MnistNetwork, MnistNeuron, MNIST_AREA, MNIST_SIDE};
+use mccm::{MnistNetwork, MnistNeuron, MNIST_SIDE};
 use std::cell::Cell;
 use std::rc::Rc;
 use std::path::Path;
 use std::fs::File;
 use std::io::Write;
+use rand::Rng;
 
 pub struct NeuronicInput {
     measure: Cell<f32>,
@@ -32,6 +33,10 @@ impl NeuronicInput {
 
     pub fn incr_total_weighted_prediction(&self, weighted_prediction: f32) {
         self.total_weighted_prediction.replace(self.total_weighted_prediction.get() + weighted_prediction);
+    }
+
+    pub fn clear_total_weighted_prediction(&self) {
+        self.total_weighted_prediction.replace(0.0);
     }
 
     pub fn get_reconstruction(&self) -> f32 {
@@ -93,11 +98,12 @@ impl CompAENeuron {
     pub fn new(
         name: String,
         learning_constant: f32,
+        gen_weight: fn() -> f32,
         inputs: Vec<Rc<NeuronicInput>>,
         weight_holder: Rc<WeightHolder>,
     ) -> CompAENeuron {
         let weights = (0..inputs.len())
-            .map(|_| Cell::new(0.0))
+            .map(|_| Cell::new(gen_weight()))
             .collect::<Vec<Cell<f32>>>();
 
         CompAENeuron {
@@ -126,6 +132,10 @@ impl CompAENeuron {
 
         for (input, weight) in self.inputs.iter().zip(self.weights.iter()) {
             weight.replace(weight.get() + (-1.0 * input.get_reconstruction_error() * adjustment_size));
+
+            if weight.get() < 0.0 {
+                weight.replace(0.0);
+            }
         }
     }
 
@@ -162,7 +172,8 @@ impl MnistNeuron for CompAENeuron {
             total_weighted_em += weight * input.get_measure();
         }
 
-        total_weighted_em / total_weight
+        total_weighted_em / total_weight.sqrt()
+        // total_weighted_em
     }
 }
 
@@ -173,11 +184,11 @@ pub struct CompAENetwork {
 }
 
 impl CompAENetwork {
-    pub fn new(learning_constant: f32, num_neurons: usize) -> CompAENetwork {
+    pub fn new(learning_constant: f32, num_neurons: usize, num_inputs: usize, gen_synapse_weight: fn() -> f32) -> CompAENetwork {
         let weight_holder = Rc::new(WeightHolder::new());
 
         // Initialize inputs
-        let inputs = (0..MNIST_AREA)
+        let inputs = (0..num_inputs)
             .map(|_| Rc::new(NeuronicInput::new(Rc::clone(&weight_holder))))
             .collect::<Vec<Rc<NeuronicInput>>>();
 
@@ -186,6 +197,7 @@ impl CompAENetwork {
                 Rc::new(CompAENeuron::new(
                     i.to_string(),
                     learning_constant,
+                    gen_synapse_weight,
                     inputs.iter().map(|input| Rc::clone(input)).collect(),
                     Rc::clone(&weight_holder),
                 ))
@@ -226,6 +238,7 @@ impl MnistNetwork for CompAENetwork {
         let input_index = (MNIST_SIDE * y) + x;
         let input = self.inputs.get(input_index).unwrap();
         input.load_input_measure(val);
+        input.clear_total_weighted_prediction();
 
         if (x, y) == (0, 0) {
             self.weight_holder.clear();
