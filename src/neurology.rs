@@ -1,4 +1,4 @@
-use mccm::{MnistNetwork, MnistNeuron, MNIST_SIDE};
+use mccm::{MnistNetwork, MnistNeuron, MNIST_AREA, MNIST_SIDE};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -87,6 +87,26 @@ pub struct CompAENeuron {
 }
 
 impl CompAENeuron {
+    pub fn new(
+        name: String,
+        learning_constant: f32,
+        inputs: Vec<Rc<NeuronicInput>>,
+        weight_holder: Rc<WeightHolder>,
+    ) -> CompAENeuron {
+        let weights = (0..inputs.len())
+            .map(|_| RefCell::new(0.0))
+            .collect::<Vec<RefCell<f32>>>();
+
+        CompAENeuron {
+            name,
+            learning_constant,
+            inputs,
+            weights,
+            weight_holder,
+            current_em: RefCell::new(0.0),
+        }
+    }
+
     pub fn run_prediction_phase(&self) {
         let mut current_em = self.current_em.borrow_mut();
 
@@ -132,7 +152,34 @@ pub struct CompAENetwork {
     neurons: Vec<Rc<CompAENeuron>>,
     inputs: Vec<Rc<NeuronicInput>>,
     weight_holder: Rc<WeightHolder>,
-    learning_constant: f32,
+}
+
+impl CompAENetwork {
+    pub fn new(learning_constant: f32, num_neurons: usize) -> CompAENetwork {
+        let weight_holder = Rc::new(WeightHolder::new());
+
+        // Initialize inputs
+        let inputs = (0..MNIST_AREA)
+            .map(|_| Rc::new(NeuronicInput::new(Rc::clone(&weight_holder))))
+            .collect::<Vec<Rc<NeuronicInput>>>();
+
+        let neurons = (0..num_neurons)
+            .map(|i| {
+                Rc::new(CompAENeuron::new(
+                    i.to_string(),
+                    learning_constant,
+                    inputs.iter().map(|input| Rc::clone(input)).collect(),
+                    Rc::clone(&weight_holder),
+                ))
+            })
+            .collect::<Vec<Rc<CompAENeuron>>>();
+
+        CompAENetwork {
+            neurons,
+            inputs,
+            weight_holder
+        }
+    }
 }
 
 impl MnistNetwork for CompAENetwork {
