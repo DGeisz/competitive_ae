@@ -5,12 +5,12 @@ use crate::neurology::CompAENetwork;
 
 mod neurology;
 
-const NUM_NEURONS: usize = 50;
-const LEARNING_CONST: f32 = 0.001;
-const EPOCHS: usize = 1;
+const NUM_NEURONS: usize = 100;
+const LEARNING_CONST: f32 = 0.0002;
+const EPOCHS: usize = 5;
 
 const MIN_INIT_WEIGHT: f32 = 0.0;
-const MAX_INIT_WEIGHT: f32 = 1.0 / NUM_NEURONS as f32;
+const MAX_INIT_WEIGHT: f32 = 1.0;
 
 const TRAINING_SET_LENGTH: u32 = 60000;
 const TEST_SET_LENGTH: u32 = 10000;

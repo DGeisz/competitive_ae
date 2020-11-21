@@ -81,7 +81,7 @@ impl WeightHolder {
     }
 
     pub fn get_total_weight(&self) -> f32 {
-        self.total_weights.get()
+        1.0
     }
 }
 
